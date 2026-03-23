@@ -799,3 +799,983 @@ bashpip install scikit-image matplotlib numpy scipy
 
 
 ==========================================================================================================================================
+
+Prompt: "Okay. So this is one of the blur image.  I already have the deblur and the sharp image. I want to run YOLO on Google Colab. Guide me to run YOLO on Google Colab. Write the Python script to import YOLO until it detect object on the images. Give comments on the Python code for additional information."
+
+Answer
+I can see your blurred image — it's a street scene with plant pots, banners, and storefronts. Let me write you a clean, well-commented Colab script.Viewed a file, created a file, read a fileViewed a file, created a file, read a fileThe script is ready to download. Here's how to use it step by step in Colab:
+Setup in Colab:
+
+Go to colab.research.google.com → New notebook
+Set runtime to GPU: Runtime → Change runtime type → T4 GPU
+Copy the script's cells into Colab one by one (each CELL block is one Colab cell)
+
+Folder structure to set up in Google Drive:
+MyDrive/comp6001/images/
+    blurred/000001.png
+    deblurred/000001.png
+    sharp/000001.png
+What the script produces:
+CellOutput6Terminal printout of every detected object + confidence7Side-by-side annotated image saved to Drive8Confidence distribution bar chart9Per-class breakdown table for your report10Individual annotated images saved to Drive11Inference time comparison (optional, for Task 3 latency analysis)
+One thing to update: change the three PATH variables in Cell 3 to match wherever you store your images in Drive. Everything else runs as-is.
+
+# =============================================================================
+# COMP6001 Assignment 1 — Task 3: Object Detection with YOLO11
+# Run this script cell-by-cell in Google Colab.
+# Goal: Run YOLO11 on blurred, deblurred, and sharp images and compare results.
+# =============================================================================
+ 
+ 
+# -----------------------------------------------------------------------------
+# CELL 1: Install dependencies
+# Run this first. Colab may ask you to restart the runtime after — do so.
+# -----------------------------------------------------------------------------
+# !pip install ultralytics          # Ultralytics is the library that provides YOLO11
+# !pip install opencv-python-headless matplotlib
+ 
+ 
+# -----------------------------------------------------------------------------
+# CELL 2: Imports
+# -----------------------------------------------------------------------------
+import os
+import cv2                          # OpenCV: image loading, drawing bounding boxes
+import numpy as np
+import matplotlib.pyplot as plt     # For displaying results side by side
+import matplotlib.patches as mpatches
+from ultralytics import YOLO        # The YOLO11 model interface
+from pathlib import Path
+ 
+ 
+# -----------------------------------------------------------------------------
+# CELL 3: Mount Google Drive (skip if uploading images directly to Colab)
+# Your blurred / deblurred / sharp images should be stored in Google Drive.
+# Adjust the paths below to match your Drive folder structure.
+# -----------------------------------------------------------------------------
+from google.colab import drive
+drive.mount('/content/drive')
+ 
+# ---- Update these paths to match your Drive folder ----
+BLURRED_PATH  = '/content/drive/MyDrive/comp6001/images/blurred/000001.png'
+DEBLURRED_PATH = '/content/drive/MyDrive/comp6001/images/deblurred/000001.png'
+SHARP_PATH    = '/content/drive/MyDrive/comp6001/images/sharp/000001.png'
+ 
+# Output folder — results (annotated images) will be saved here
+OUTPUT_DIR = '/content/drive/MyDrive/comp6001/task3_outputs'
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+ 
+ 
+# -----------------------------------------------------------------------------
+# CELL 4: Load the YOLO11 model
+# YOLO11 comes in 5 sizes: n (nano), s (small), m (medium), l (large), x (extra-large)
+# 'yolo11m.pt' is recommended for this assignment — good accuracy, manageable speed.
+# On first run, Ultralytics will auto-download the pretrained weights (~40MB).
+# The model is pretrained on COCO (80 object classes: person, car, bench, potted plant, etc.)
+# -----------------------------------------------------------------------------
+model = YOLO('yolo11m.pt')
+ 
+# Print the 80 COCO class names the model can detect
+print("Classes this model can detect:")
+print(model.names)
+ 
+ 
+# -----------------------------------------------------------------------------
+# CELL 5: Define a helper function to run detection and return structured results
+# This keeps our code DRY — we reuse it for all three image types.
+# -----------------------------------------------------------------------------
+def run_detection(image_path, model, conf_threshold=0.25, label=""):
+    """
+    Run YOLO11 inference on a single image.
+ 
+    Args:
+        image_path    : Path to the input image file.
+        model         : Loaded YOLO model instance.
+        conf_threshold: Minimum confidence score to count as a detection (0–1).
+                        0.25 is YOLO's default — lower = more (but noisier) detections.
+        label         : A string label for display purposes (e.g. "Blurred").
+ 
+    Returns:
+        results       : Raw YOLO results object (contains boxes, scores, classes).
+        annotated_img : BGR image with bounding boxes drawn by YOLO.
+        detections    : List of dicts with box coords, class name, and confidence.
+    """
+    # Run inference — YOLO returns a list of Results objects (one per image)
+    results = model.predict(
+        source=image_path,
+        conf=conf_threshold,    # Only return detections above this confidence
+        iou=0.45,               # IoU threshold for Non-Maximum Suppression (NMS)
+                                # NMS removes duplicate boxes for the same object
+        verbose=False           # Suppress per-frame console output
+    )
+ 
+    result = results[0]  # We passed one image, so take the first result
+ 
+    # YOLO can draw its own annotated image (boxes + labels + confidence)
+    annotated_img = result.plot()  # Returns a BGR numpy array
+ 
+    # Extract individual detection details into a plain list of dicts
+    detections = []
+    for box in result.boxes:
+        class_id   = int(box.cls[0])          # Integer class index (e.g. 0 = person)
+        class_name = model.names[class_id]    # Human-readable name (e.g. "person")
+        confidence = float(box.conf[0])       # Confidence score between 0 and 1
+        xyxy       = box.xyxy[0].tolist()     # Bounding box: [x1, y1, x2, y2] in pixels
+ 
+        detections.append({
+            'class':      class_name,
+            'confidence': round(confidence, 3),
+            'box':        [round(c, 1) for c in xyxy]
+        })
+ 
+    print(f"\n[{label}] — {len(detections)} object(s) detected:")
+    for d in detections:
+        print(f"  {d['class']:20s}  conf={d['confidence']:.3f}  box={d['box']}")
+ 
+    return result, annotated_img, detections
+ 
+ 
+# -----------------------------------------------------------------------------
+# CELL 6: Run detection on all three images
+# -----------------------------------------------------------------------------
+result_blur,     img_blur,     dets_blur     = run_detection(BLURRED_PATH,   model, label="Blurred")
+result_deblur,   img_deblur,   dets_deblur   = run_detection(DEBLURRED_PATH, model, label="Deblurred")
+result_sharp,    img_sharp,    dets_sharp    = run_detection(SHARP_PATH,     model, label="Sharp")
+ 
+ 
+# -----------------------------------------------------------------------------
+# CELL 7: Visual comparison — show all three side by side
+# Matplotlib expects RGB, but OpenCV gives BGR — convert before displaying.
+# -----------------------------------------------------------------------------
+fig, axes = plt.subplots(1, 3, figsize=(20, 7))
+fig.suptitle("YOLO11 Object Detection — Blurred vs Deblurred vs Sharp", fontsize=14, fontweight='bold')
+ 
+titles = ["Blurred", "Deblurred", "Sharp (ground truth)"]
+images = [img_blur, img_deblur, img_sharp]
+counts = [len(dets_blur), len(dets_deblur), len(dets_sharp)]
+ 
+for ax, img, title, count in zip(axes, images, titles, counts):
+    ax.imshow(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))   # Convert BGR → RGB for display
+    ax.set_title(f"{title}\n({count} detections)", fontsize=12)
+    ax.axis('off')
+ 
+plt.tight_layout()
+plt.savefig(os.path.join(OUTPUT_DIR, 'comparison_annotated.png'), dpi=150, bbox_inches='tight')
+plt.show()
+print("Saved annotated comparison to output folder.")
+ 
+ 
+# -----------------------------------------------------------------------------
+# CELL 8: Confidence score analysis
+# Plot confidence distributions for each image type.
+# Lower confidence on blurred images = model is less certain → useful for your report.
+# -----------------------------------------------------------------------------
+def get_confidences(detections):
+    """Extract a list of confidence scores from a detection list."""
+    return [d['confidence'] for d in detections]
+ 
+conf_blur    = get_confidences(dets_blur)
+conf_deblur  = get_confidences(dets_deblur)
+conf_sharp   = get_confidences(dets_sharp)
+ 
+fig, ax = plt.subplots(figsize=(10, 5))
+ 
+# Bar chart — mean confidence per image type with individual scores overlaid
+categories = ['Blurred', 'Deblurred', 'Sharp']
+means      = [
+    np.mean(conf_blur)   if conf_blur   else 0,
+    np.mean(conf_deblur) if conf_deblur else 0,
+    np.mean(conf_sharp)  if conf_sharp  else 0
+]
+colors = ['#e74c3c', '#3498db', '#2ecc71']
+ 
+bars = ax.bar(categories, means, color=colors, alpha=0.7, edgecolor='black', linewidth=0.8)
+ 
+# Overlay individual confidence scores as scatter points
+for i, (confs, label) in enumerate(zip([conf_blur, conf_deblur, conf_sharp], categories)):
+    jitter = np.random.uniform(-0.1, 0.1, len(confs))  # Spread points so they don't overlap
+    ax.scatter([i + j for j in jitter], confs, color=colors[i], edgecolor='black',
+               linewidth=0.5, zorder=5, alpha=0.9, s=60)
+ 
+ax.set_ylabel("Confidence Score", fontsize=12)
+ax.set_title("Mean Detection Confidence by Image Type", fontsize=13)
+ax.set_ylim(0, 1.05)
+ax.axhline(0.25, color='gray', linestyle='--', linewidth=0.8, label='Detection threshold (0.25)')
+ax.legend()
+ 
+# Annotate bars with mean values
+for bar, mean in zip(bars, means):
+    ax.text(bar.get_x() + bar.get_width() / 2, mean + 0.02,
+            f'{mean:.3f}', ha='center', va='bottom', fontsize=11, fontweight='bold')
+ 
+plt.tight_layout()
+plt.savefig(os.path.join(OUTPUT_DIR, 'confidence_comparison.png'), dpi=150, bbox_inches='tight')
+plt.show()
+ 
+ 
+# -----------------------------------------------------------------------------
+# CELL 9: Detection count and class breakdown table
+# This is useful for your report — shows which classes appear or disappear
+# depending on blur level. Missed detections are a key failure case to discuss.
+# -----------------------------------------------------------------------------
+def class_summary(detections, label):
+    """Print a per-class breakdown of detections and their confidence scores."""
+    print(f"\n{'='*50}")
+    print(f"  {label} — Class Breakdown")
+    print(f"{'='*50}")
+    print(f"  {'Class':<22} {'Count':>5}  {'Avg Conf':>9}")
+    print(f"  {'-'*40}")
+    from collections import defaultdict
+    class_confs = defaultdict(list)
+    for d in detections:
+        class_confs[d['class']].append(d['confidence'])
+    if not class_confs:
+        print("  No detections.")
+    for cls, confs in sorted(class_confs.items()):
+        print(f"  {cls:<22} {len(confs):>5}  {np.mean(confs):>9.3f}")
+ 
+class_summary(dets_blur,    "Blurred")
+class_summary(dets_deblur,  "Deblurred")
+class_summary(dets_sharp,   "Sharp")
+ 
+ 
+# -----------------------------------------------------------------------------
+# CELL 10: Save annotated images individually to Drive
+# Good for including in your report — higher quality than the combined plot.
+# -----------------------------------------------------------------------------
+cv2.imwrite(os.path.join(OUTPUT_DIR, 'detected_blurred.png'),   img_blur)
+cv2.imwrite(os.path.join(OUTPUT_DIR, 'detected_deblurred.png'), img_deblur)
+cv2.imwrite(os.path.join(OUTPUT_DIR, 'detected_sharp.png'),     img_sharp)
+ 
+print("\nAll annotated images saved to:", OUTPUT_DIR)
+ 
+ 
+# -----------------------------------------------------------------------------
+# CELL 11: (Optional) Latency / inference time comparison
+# Task 3 mentions you MAY include a runtime comparison. This cell does that.
+# -----------------------------------------------------------------------------
+import time
+ 
+def measure_inference_time(image_path, model, runs=5):
+    """
+    Average inference time over multiple runs to get a stable measurement.
+    GPU warm-up effects can skew single-run timings, so we use 5 runs.
+    """
+    times = []
+    for _ in range(runs):
+        start = time.perf_counter()
+        model.predict(source=image_path, conf=0.25, verbose=False)
+        elapsed = time.perf_counter() - start
+        times.append(elapsed)
+    return np.mean(times) * 1000  # Return in milliseconds
+ 
+print("\nMeasuring inference times (5 runs each)...")
+t_blur    = measure_inference_time(BLURRED_PATH,   model)
+t_deblur  = measure_inference_time(DEBLURRED_PATH, model)
+t_sharp   = measure_inference_time(SHARP_PATH,     model)
+ 
+print(f"\n  Blurred   : {t_blur:.1f} ms")
+print(f"  Deblurred : {t_deblur:.1f} ms")
+print(f"  Sharp     : {t_sharp:.1f} ms")
+print("\nNote: Inference time should be similar across image types.")
+print("Large differences indicate preprocessing overhead, not model variation.")
+
+==========================================================================================================================================
+Prompt: How can I calculate the noise in an image? Explain to me about it
+
+Answer:
+Understanding and Measuring Noise in Images
+Great question! Let me explain noise comprehensively, from what it is to how to measure it.
+What is Image Noise?
+Noise is unwanted random variation in pixel values that degrades image quality. It's the digital equivalent of static or grain you see in photos.
+Where Does Noise Come From?
+
+Shot Noise (Photon noise)
+
+Caused by random arrival of photons during image capture
+More prominent in low-light conditions
+Physics-based (inherent to light detection)
+
+
+Thermal Noise (Dark current noise)
+
+Generated by thermal energy in the camera sensor
+Increases with temperature and exposure time
+Appears as random dark/bright pixels
+
+
+Read Noise
+
+Introduced during signal readout from sensor to digital storage
+Proportional to sensor electronics quality
+Fixed amount per pixel
+
+
+Quantization Noise
+
+Results from converting analog signal to digital values
+Related to bit depth (8-bit, 12-bit, 16-bit, etc.)
+Lower bit depth = more quantization noise
+
+
+Compression Artifacts
+
+Introduced by lossy compression (JPG, MP4, etc.)
+Creates blocky patterns and color bleeding
+Not random, but often treated as noise
+
+
+
+
+How to Detect and Measure Noise
+There are several approaches, each revealing different aspects:
+Method 1: Standard Deviation (Variance-Based)
+Concept:
+
+Measure how much pixel values vary around the mean
+Assumes uniform regions should have constant values
+Deviation from uniformity = noise
+
+Logic:
+Uniform area (no noise):
+Pixel values: 128, 128, 128, 128
+Standard dev: 0
+
+Same area (with noise):
+Pixel values: 128, 130, 126, 131
+Standard dev: 1.87 (captures the variation)
+Calculation:
+
+Select uniform regions (flat surfaces, solid colors)
+Calculate standard deviation of pixel values
+Higher std dev = more noise
+
+Pros: Simple, fast, intuitive
+Cons: Requires identifying uniform regions; doesn't work well in textured areas
+
+Method 2: Laplacian Operator (High-Pass Filtering)
+Concept:
+
+Noise has high-frequency components (rapid pixel changes)
+Sharp edges also have high-frequency components
+Use Laplacian to detect both, then analyze the pattern
+Noise creates random spikes; edges create oriented patterns
+
+Logic:
+Edge (not noise):
+Organized high-frequency content
+Clear directional pattern
+Concentrated in one area
+
+Noise:
+Random high-frequency content
+No directional pattern
+Scattered everywhere
+Calculation:
+
+Apply Laplacian operator to image (detects edges and sharp changes)
+Calculate variance of Laplacian output
+Analyze the distribution of values
+High variance with scattered values = more noise
+
+Pros: Detects noise independently of content
+Cons: Can be affected by edges in the image
+
+Method 3: Difference Between Original and Smoothed (Residual Analysis)
+Concept:
+
+Apply a low-pass filter (blur) to remove noise and fine details
+Subtract smoothed version from original
+What remains = noise and fine details
+Analyze the residual image
+
+Logic:
+Original image = Clean image + Noise
+
+If we remove noise by smoothing:
+Residual = Original - Smoothed ≈ Noise
+
+Noise level = Standard deviation of residual
+Calculation:
+
+Apply Gaussian blur to the original image (smooths out noise)
+Subtract blurred version from original
+Calculate standard deviation of the difference
+This is an estimate of noise level
+
+Pros: Isolates noise from edge information
+Cons: Depends on blur kernel size choice
+
+Method 4: Peak Signal-to-Noise Ratio (PSNR)
+Concept:
+
+Compares how much noise there is relative to the signal
+Requires a reference (clean) image for comparison
+Most useful when you have original + noisy versions
+
+Logic:
+PSNR = 20 * log10(MAX_PIXEL_VALUE / RMSE)
+
+Where:
+MAX_PIXEL_VALUE = 255 (for 8-bit images)
+RMSE = Root Mean Square Error between original and noisy
+
+Higher PSNR = Less noise (good)
+Lower PSNR = More noise (bad)
+
+Typical ranges:
+- 20 dB: Very noisy
+- 30 dB: Acceptable
+- 40+ dB: Very clean
+Pros: Standardized metric, widely used
+Cons: Requires a reference image; doesn't always correlate with human perception
+
+Method 5: Structural Similarity Index (SSIM)
+Concept:
+
+Measures perceived quality considering luminance, contrast, and structure
+Better matches human perception than PSNR
+Also requires a reference image
+
+Logic:
+SSIM considers three components:
+1. Luminance similarity (brightness match)
+2. Contrast similarity (detail match)
+3. Structural similarity (pattern match)
+
+Result: -1 to +1 scale
+- 1.0 = Identical images
+- 0.5 = Moderate difference (some noise)
+- -1.0 = Completely inverted
+
+SSIM with noise detection:
+High SSIM loss = significant noise introduction
+Pros: Perceptually meaningful, used in industry
+Cons: Requires reference; computationally expensive
+
+Method 6: Frequency Domain Analysis (Power Spectrum)
+Concept:
+
+Noise is distributed across all frequencies
+Signal (edges, objects) concentrates in specific frequencies
+Analyze frequency distribution to isolate noise
+
+Logic:
+Frequency characteristics:
+- Images have natural frequency profile (more low-freq, less high-freq)
+- Noise shows up as:
+  * Increased energy in high frequencies
+  * Flatter, more uniform distribution
+  * Less organized peaks
+
+Clean image FFT:
+Energy = lots of low-freq + some organized high-freq
+
+Noisy image FFT:
+Energy = lots of low-freq + scattered high-freq throughout
+Calculation:
+
+Apply 2D FFT to image
+Compute power spectrum (magnitude squared)
+Analyze high-frequency content
+Compare to expected pattern for image type
+Excess high-frequency energy = noise
+
+Pros: Reveals noise characteristics, separates from signal
+Cons: Complex interpretation
+
+Method 7: Noise Estimation from Uniform Regions (Practical)
+Concept:
+
+Most practical for real images without reference
+Find flat regions (sky, walls, etc.)
+Measure deviation in those regions only
+These should theoretically be constant
+
+Logic:
+Step 1: Identify uniform regions
+- Look for areas with low gradient (flat surfaces)
+- Calculate gradient magnitude in small patches
+- Select patches with lowest gradients
+
+Step 2: Measure noise in uniform regions
+- Standard deviation of pixel values in these patches
+- This is a direct noise estimate
+- Unaffected by image content
+
+Result: Noise level directly from image content
+Calculation:
+
+Divide image into small patches (e.g., 8×8 pixels)
+Calculate gradient magnitude for each patch
+Select patches with lowest gradients (flattest regions)
+Average the standard deviation across selected patches
+This is your noise level estimate
+
+Pros: Works without reference image, practical
+Cons: Assumes flat regions exist; may miss some noise types
+
+Comparing the Methods
+MethodReference NeededSpeedAccuracyUse CaseStd Dev (Uniform)NoVery FastLowQuick estimateLaplacianNoFastMediumGeneral noiseResidualNoMediumMedium-HighDetailed analysisPSNRYesFastHighQuality comparisonSSIMYesSlowVery HighPerception-basedFFT AnalysisNoMediumHighFrequency analysisUniform RegionsNoFastHighPractical scenes
+
+Practical Noise Level Interpretation
+Once you calculate noise metrics:
+Noise LevelImage QualityAppearanceVery Low (σ < 2)ExcellentClean, smoothLow (σ 2-5)GoodMinor grain visibleModerate (σ 5-10)AcceptableVisible noise, manageableHigh (σ 10-20)PoorSignificant grain/artifactsVery High (σ > 20)UnusableSevere noise/corruption
+Note: σ = standard deviation in pixel units (0-255 scale)
+
+Key Considerations
+
+Color vs Grayscale:
+
+Color images have 3 channels (RGB)
+Noise can differ per channel
+Measure separately and average, or convert to grayscale
+
+
+Different Noise Types:
+
+Gaussian noise: random, follows normal distribution
+Salt-and-pepper: random black/white pixels
+Poisson noise: intensity-dependent
+Multiplicative noise: scales with signal
+
+
+Noise vs Texture:
+
+Fine textures can look like noise
+Use multiple methods to distinguish
+Visual inspection is important
+
+
+Region Selection:
+
+Different regions may have different noise levels
+Measure multiple areas for average
+Shadows often have more visible noise than highlights
+
+
+Camera/Sensor Dependency:
+
+Different cameras have different baseline noise
+Compare images from same source for consistency
+ISO/gain settings affect noise level significantly
+
+
+
+
+Summary: Choosing a Method
+
+If you have a clean reference image: Use PSNR or SSIM
+If you only have the potentially noisy image: Use Laplacian, Residual, or Uniform Regions methods
+For quick assessment: Standard deviation in uniform regions
+For detailed analysis: Frequency domain + Residual analysis combined
+For perceived quality: SSIM (if reference available) or visual inspection
+
+Would you like me to create Python code demonstrating one or more of these noise measurement methods applied to a real image?
+
+==========================================================================================================================================
+Prompt:
+From the three images, use sharp images as ground truth. Calculate the accuracy (precision and recall), confidence score changes, images chage detection boundaries, class performance, and intersection over union from blur and deblur image. Give comment for explanation.
+
+Answers
+I will create a plan to analyze the object detection performance across blurred, deblurred, and sharp images. This involves calculating precision, recall, Intersection over Union (IoU), and analyzing confidence score and class performance, using the sharp image detections as ground truth.
+
+Implement IoU calculation: Write a helper function to calculate the Intersection over Union between two bounding boxes. This will be essential for matching detections.
+Match Detections to Ground Truth: Develop a strategy to match detections from blurred and deblurred images to the 'ground truth' detections from the sharp image, using an IoU threshold. This step will also identify True Positives, False Positives, and False Negatives.
+Calculate Precision and Recall: Compute the precision and recall for both blurred and deblurred images against the sharp image's detections. This will quantify detection accuracy.
+Analyze Confidence Score Changes: Compare the confidence scores of matched detections between the blurred/deblurred images and the sharp image to observe the impact of blur/deblurring on detection certainty.
+Analyze Bounding Box Changes (IoU): For matched detections, calculate the average IoU between the detected bounding box and its corresponding ground truth box to assess how accurately the bounding boxes are localized under different blur conditions.
+Evaluate Class Performance: Break down the precision, recall, and detection counts by class for blurred and deblurred images to understand how different object types are affected.
+Present Results and Explanations: Display all calculated metrics and insights in a clear, formatted output, providing comments and explanations for the observed performance changes.
+
+Implement IoU calculation
+Subtask:
+Write a helper function to calculate the Intersection over Union between two bounding boxes.
+
+Reasoning: The subtask requires defining a Python function calculate_iou that computes the Intersection over Union between two bounding boxes, following the detailed instructions provided.
+def calculate_iou(box1, box2):
+    """
+    Calculates the Intersection over Union (IoU) of two bounding boxes.
+
+    Args:
+        box1 (list): Bounding box as [x1, y1, x2, y2].
+        box2 (list): Bounding box as [x1, y1, x2, y2].
+
+    Returns:
+        float: The IoU value between the two bounding boxes, ranging from 0 to 1.
+    """
+    # 2. Extract coordinates for both bounding boxes
+    x1_1, y1_1, x2_1, y2_1 = box1
+    x1_2, y1_2, x2_2, y2_2 = box2
+
+    # 3. Calculate the coordinates of the intersection rectangle
+    x_intersect_left   = max(x1_1, x1_2)
+    y_intersect_top    = max(y1_1, y1_2)
+    x_intersect_right  = min(x2_1, x2_2)
+    y_intersect_bottom = min(y2_1, y2_2)
+
+    # 4. Calculate the width and height of the intersection rectangle
+    intersection_width  = max(0, x_intersect_right - x_intersect_left)
+    intersection_height = max(0, y_intersect_bottom - y_intersect_top)
+
+    # 5. Calculate the area of the intersection rectangle
+    intersection_area = intersection_width * intersection_height
+
+    # 6. Calculate the area of box1
+    area1 = (x2_1 - x1_1) * (y2_1 - y1_1)
+
+    # 7. Calculate the area of box2
+    area2 = (x2_2 - x1_2) * (y2_2 - y1_2)
+
+    # 8. Calculate the area of the union
+    union_area = area1 + area2 - intersection_area
+
+    # 9. Handle the case where union_area is zero to avoid division by zero
+    if union_area == 0:
+        return 0.0
+    else:
+        return intersection_area / union_area
+
+print("The `calculate_iou` function has been defined.")
+
+Match Detections to Ground Truth
+Subtask:
+Develop a strategy to match detections from blurred and deblurred images to the 'ground truth' detections from the sharp image, using an IoU threshold. This step will also identify True Positives, False Positives, and False Negatives.
+
+Reasoning: The subtask requires implementing a match_detections function to compare detected boxes with ground truth boxes using IoU and classify them as True Positives, False Positives, and False Negatives. This function will then be called for both blurred and deblurred image detections against sharp image detections.
+
+def match_detections(detected_boxes, ground_truth_boxes, iou_threshold=0.5):
+    """
+    Matches detected bounding boxes to ground truth bounding boxes using IoU.
+    Identifies True Positives (TP), False Positives (FP), and False Negatives (FN).
+
+    Args:
+        detected_boxes (list): List of detected bounding boxes (each as [x1, y1, x2, y2]).
+        ground_truth_boxes (list): List of ground truth bounding boxes (each as [x1, y1, x2, y2]).
+        iou_threshold (float): Minimum IoU score to consider a match.
+
+    Returns:
+        tuple: (tp_count, fp_count, fn_count)
+    """
+    tp = 0
+    fp = 0
+    fn = 0
+
+    # Keep track of which ground truth boxes have been matched
+    gt_matched = [False] * len(ground_truth_boxes)
+
+    # Iterate through each detected box to find matches with ground truth boxes
+    for det_box in detected_boxes:
+        matched_to_gt = False
+        best_iou = 0.0
+        best_gt_idx = -1
+
+        for i, gt_box in enumerate(ground_truth_boxes):
+            if not gt_matched[i]: # Only consider unmatched ground truth boxes
+                iou = calculate_iou(det_box, gt_box)
+                if iou >= iou_threshold and iou > best_iou:
+                    best_iou = iou
+                    best_gt_idx = i
+
+        if best_gt_idx != -1:
+            tp += 1
+            gt_matched[best_gt_idx] = True
+        else:
+            fp += 1
+
+    # Any unmatched ground truth box is a False Negative
+    fn = sum(1 for matched in gt_matched if not matched)
+
+    return tp, fp, fn
+
+# Extract only the bounding box coordinates from the detection results
+boxes_blur    = [d['box'] for d in dets_blur]
+boxes_deblur  = [d['box'] for d in dets_deblur]
+boxes_sharp   = [d['box'] for d in dets_sharp]
+
+# Set the IoU threshold
+IOU_THRESHOLD = 0.5
+
+# Match detections for blurred image
+tp_blur, fp_blur, fn_blur = match_detections(boxes_blur, boxes_sharp, IOU_THRESHOLD)
+
+print(f"\n--- Evaluation for Blurred Image (IoU Threshold: {IOU_THRESHOLD}) ---")
+print(f"  True Positives (TP): {tp_blur}")
+print(f"  False Positives (FP): {fp_blur}")
+print(f"  False Negatives (FN): {fn_blur}")
+
+# Match detections for deblurred image
+tp_deblur, fp_deblur, fn_deblur = match_detections(boxes_deblur, boxes_sharp, IOU_THRESHOLD)
+
+print(f"\n--- Evaluation for Deblurred Image (IoU Threshold: {IOU_THRESHOLD}) ---")
+print(f"  True Positives (TP): {tp_deblur}")
+print(f"  False Positives (FP): {fp_deblur}")
+print(f"  False Negatives (FN): {fn_deblur}")
+
+Calculate Precision and Recall
+Subtask:
+Compute the precision and recall for both blurred and deblurred images against the sharp image's detections. This will quantify detection accuracy.
+
+Reasoning: The subtask requires calculating Precision and Recall using the True Positives, False Positives, and False Negatives obtained from the previous step. The calculations will follow the provided formulas, including handling potential division by zero.
+
+print("\n--- Performance Metrics ---")
+
+# 1. Calculate Precision for blurred image
+precision_blur = tp_blur / (tp_blur + fp_blur) if (tp_blur + fp_blur) > 0 else 0.0
+
+# 2. Calculate Recall for blurred image
+recall_blur = tp_blur / (tp_blur + fn_blur) if (tp_blur + fn_blur) > 0 else 0.0
+
+print(f"\nBlurred Image:")
+print(f"  Precision: {precision_blur:.3f}")
+print(f"  Recall:    {recall_blur:.3f}")
+
+# 3. Calculate Precision for deblurred image
+precision_deblur = tp_deblur / (tp_deblur + fp_deblur) if (tp_deblur + fp_deblur) > 0 else 0.0
+
+# 4. Calculate Recall for deblurred image
+recall_deblur = tp_deblur / (tp_deblur + fn_deblur) if (tp_deblur + fn_deblur) > 0 else 0.0
+
+print(f"\nDeblurred Image:")
+print(f"  Precision: {precision_deblur:.3f}")
+print(f"  Recall:    {recall_deblur:.3f}")
+
+Analyze Confidence Score Changes
+Subtask:
+Compare the confidence scores of matched detections between the blurred/deblurred images and the sharp image to observe the impact of blur/deblurring on detection certainty.
+
+Reasoning: The subtask requires implementing a function to match detections and compare their confidence scores. This function will be defined and then called for both blurred and deblurred images against sharp images to extract confidence scores and IoU values, and finally, calculate and print the average confidence differences.
+
+def get_matched_confidences_and_iou(detected_results, ground_truth_results, iou_threshold=0.5):
+    """
+    Matches detected bounding boxes to ground truth bounding boxes using IoU
+    and returns confidence scores and IoU for matched pairs.
+
+    Args:
+        detected_results (list): List of detected objects, each a dict with 'box' and 'confidence'.
+        ground_truth_results (list): List of ground truth objects, each a dict with 'box' and 'confidence'.
+        iou_threshold (float): Minimum IoU score to consider a match.
+
+    Returns:
+        list: A list of tuples (detected_confidence, ground_truth_confidence, iou_score)
+              for each matched pair.
+    """
+    matched_data = []
+    gt_matched = [False] * len(ground_truth_results)
+
+    for det_idx, det_res in enumerate(detected_results):
+        det_box = det_res['box']
+        det_conf = det_res['confidence']
+        
+        best_iou = 0.0
+        best_gt_idx = -1
+
+        for gt_idx, gt_res in enumerate(ground_truth_results):
+            if not gt_matched[gt_idx]:
+                gt_box = gt_res['box']
+                iou = calculate_iou(det_box, gt_box)
+
+                if iou >= iou_threshold and iou > best_iou:
+                    best_iou = iou
+                    best_gt_idx = gt_idx
+        
+        if best_gt_idx != -1:
+            # A match is found
+            gt_conf = ground_truth_results[best_gt_idx]['confidence']
+            matched_data.append((det_conf, gt_conf, best_iou))
+            gt_matched[best_gt_idx] = True # Mark ground truth as matched
+
+    return matched_data
+
+# 2. Call get_matched_confidences_and_iou for blurred detections
+matched_data_blur = get_matched_confidences_and_iou(dets_blur, dets_sharp, IOU_THRESHOLD)
+
+# 3. Call get_matched_confidences_and_iou for deblurred detections
+matched_data_deblur = get_matched_confidences_and_iou(dets_deblur, dets_sharp, IOU_THRESHOLD)
+
+# 4. Extract lists for blurred matches
+blur_confs = [item[0] for item in matched_data_blur]
+sharp_confs_for_blur = [item[1] for item in matched_data_blur]
+iou_blur_matches = [item[2] for item in matched_data_blur]
+
+# 5. Extract lists for deblurred matches
+deblur_confs = [item[0] for item in matched_data_deblur]
+sharp_confs_for_deblur = [item[1] for item in matched_data_deblur]
+iou_deblur_matches = [item[2] for item in matched_data_deblur]
+
+print("\n--- Confidence Score Analysis (Matched Detections) ---")
+
+# 6. Calculate the average confidence difference between blurred and sharp images
+if blur_confs:
+    avg_diff_blur_sharp = np.mean([sc - bc for bc, sc in zip(blur_confs, sharp_confs_for_blur)])
+    print(f"Average confidence difference (Sharp - Blurred) for matched detections: {avg_diff_blur_sharp:.3f}")
+    print(f"  Blurred confidences (matched): {np.mean(blur_confs):.3f} (avg)")
+    print(f"  Sharp confidences (matched to blurred): {np.mean(sharp_confs_for_blur):.3f} (avg)")
+else:
+    print("No matched detections between blurred and sharp images.")
+
+# 7. Calculate the average confidence difference between deblurred and sharp images
+if deblur_confs:
+    avg_diff_deblur_sharp = np.mean([sc - dc for dc, sc in zip(deblur_confs, sharp_confs_for_deblur)])
+    print(f"Average confidence difference (Sharp - Deblurred) for matched detections: {avg_diff_deblur_sharp:.3f}")
+    print(f"  Deblurred confidences (matched): {np.mean(deblur_confs):.3f} (avg)")
+    print(f"  Sharp confidences (matched to deblurred): {np.mean(sharp_confs_for_deblur):.3f} (avg)")
+else:
+    print("No matched detections between deblurred and sharp images.")
+	
+Analyze Bounding Box Changes (IoU)
+Subtask:
+For matched detections, calculate the average IoU between the detected bounding box and its corresponding ground truth box to assess how accurately the bounding boxes are localized under different blur conditions.
+
+Reasoning: The subtask requires calculating and printing the average IoU for matched detections in blurred and deblurred images based on the provided instructions.
+
+print("\n--- IoU Analysis of Matched Detections ---")
+
+# Calculate and print average IoU for blurred images
+if iou_blur_matches:
+    avg_iou_blur = np.mean(iou_blur_matches)
+    print(f"Average IoU for matched blurred detections: {avg_iou_blur:.3f}")
+else:
+    print("No matched detections for blurred images.")
+
+# Calculate and print average IoU for deblurred images
+if iou_deblur_matches:
+    avg_iou_deblur = np.mean(iou_deblur_matches)
+    print(f"Average IoU for matched deblurred detections: {avg_iou_deblur:.3f}")
+else:
+    print("No matched detections for deblurred images.")
+	
+Evaluate Class Performance
+Subtask:
+Break down the precision, recall, and detection counts by class for blurred and deblurred images to understand how different object types are affected.
+
+Reasoning: I need to define the get_class_metrics function as per the instructions, which will calculate class-wise True Positives, False Positives, False Negatives, Precision, and Recall. This function will also track detected and ground truth counts and average confidences for each class.
+
+from collections import defaultdict
+
+def get_class_metrics(detected_results, ground_truth_results, model_names, iou_threshold=0.5):
+    """
+    Calculates class-wise performance metrics (TP, FP, FN, Precision, Recall).
+
+    Args:
+        detected_results (list): List of detected objects, each a dict with 'box', 'confidence', 'class'.
+        ground_truth_results (list): List of ground truth objects, each a dict with 'box', 'confidence', 'class'.
+        model_names (dict): Dictionary mapping class IDs to class names.
+        iou_threshold (float): Minimum IoU score to consider a match.
+
+    Returns:
+        dict: A dictionary where keys are class names and values are dictionaries
+              containing 'tp', 'fp', 'fn', 'precision', 'recall', 'detected_count',
+              'gt_count', 'avg_detected_conf', 'avg_gt_conf' for each class.
+    """
+    class_metrics = defaultdict(lambda: {
+        'tp': 0, 'fp': 0, 'fn': 0,
+        'detected_count': 0, 'gt_count': 0,
+        'detected_confs': [], 'gt_confs': []
+    })
+
+    # Populate ground truth counts and confidences for each class
+    for gt_res in ground_truth_results:
+        class_metrics[gt_res['class']]['gt_count'] += 1
+        class_metrics[gt_res['class']]['gt_confs'].append(gt_res['confidence'])
+
+    # Keep track of which ground truth boxes have been matched to avoid double counting
+    gt_matched = [False] * len(ground_truth_results)
+
+    # Iterate through detected boxes to find matches and update TP, FP
+    for det_res in detected_results:
+        det_box = det_res['box']
+        det_class = det_res['class']
+        det_conf = det_res['confidence']
+
+        class_metrics[det_class]['detected_count'] += 1
+        class_metrics[det_class]['detected_confs'].append(det_conf)
+
+        best_iou = 0.0
+        best_gt_idx = -1
+        
+        for gt_idx, gt_res in enumerate(ground_truth_results):
+            if not gt_matched[gt_idx]:
+                gt_box = gt_res['box']
+                iou = calculate_iou(det_box, gt_box)
+
+                if iou >= iou_threshold and iou > best_iou:
+                    best_iou = iou
+                    best_gt_idx = gt_idx
+        
+        if best_gt_idx != -1 and ground_truth_results[best_gt_idx]['class'] == det_class:
+            class_metrics[det_class]['tp'] += 1
+            gt_matched[best_gt_idx] = True
+        else:
+            # If no match or match with different class, it's an FP for the detected class
+            class_metrics[det_class]['fp'] += 1
+
+    # Any unmatched ground truth box is a False Negative
+    for gt_idx, gt_res in enumerate(ground_truth_results):
+        if not gt_matched[gt_idx]:
+            class_metrics[gt_res['class']]['fn'] += 1
+
+    # Calculate Precision and Recall for each class
+    for class_name, metrics in class_metrics.items():
+        tp = metrics['tp']
+        fp = metrics['fp']
+        fn = metrics['fn']
+
+        precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+        recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+
+        metrics['precision'] = precision
+        metrics['recall'] = recall
+
+        metrics['avg_detected_conf'] = np.mean(metrics['detected_confs']) if metrics['detected_confs'] else 0.0
+        metrics['avg_gt_conf'] = np.mean(metrics['gt_confs']) if metrics['gt_confs'] else 0.0
+        del metrics['detected_confs'] # Clean up temporary lists
+        del metrics['gt_confs']
+
+    return class_metrics
+
+# Call get_class_metrics for blurred and deblurred images
+class_metrics_blur = get_class_metrics(dets_blur, dets_sharp, model.names, IOU_THRESHOLD)
+class_metrics_deblur = get_class_metrics(dets_deblur, dets_sharp, model.names, IOU_THRESHOLD)
+
+print("\n--- Class-wise Performance Metrics (Blurred vs. Sharp) ---")
+print(f"IoU Threshold: {IOU_THRESHOLD}")
+print("{\n  Class                 : Det.  GT  TP  FP  FN   Precision  Recall  Avg Det Conf  Avg GT Conf")
+print("--------------------------------------------------------------------------------------")
+for class_name, metrics in sorted(class_metrics_blur.items()):
+    print(f"  {class_name:<22}: {metrics['detected_count']:<4} {metrics['gt_count']:<3} {metrics['tp']:<3} {metrics['fp']:<3} {metrics['fn']:<3} {metrics['precision']:.4f}   {metrics['recall']:.4f}  {metrics['avg_detected_conf']:.4f}      {metrics['avg_gt_conf']:.4f}")
+
+print("\n--- Class-wise Performance Metrics (Deblurred vs. Sharp) ---")
+print(f"IoU Threshold: {IOU_THRESHOLD}")
+print("{\n  Class                 : Det.  GT  TP  FP  FN   Precision  Recall  Avg Det Conf  Avg GT Conf")
+print("--------------------------------------------------------------------------------------")
+for class_name, metrics in sorted(class_metrics_deblur.items()):
+    print(f"  {class_name:<22}: {metrics['detected_count']:<4} {metrics['gt_count']:<3} {metrics['tp']:<3} {metrics['fp']:<3} {metrics['fn']:<3} {metrics['precision']:.4f}   {metrics['recall']:.4f}  {metrics['avg_detected_conf']:.4f}      {metrics['avg_gt_conf']:.4f}")
+
+## Present Results and Explanations
+
+### Subtask:
+Display all calculated metrics and insights in a clear, formatted output, providing comments and explanations for the observed performance changes.
+
+
+## Summary:
+
+### Data Analysis Key Findings
+
+*   **Overall Detection Performance (IoU Threshold: 0.5):**
+    *   **Blurred Image:** Achieved 2 True Positives, 0 False Positives, and 5 False Negatives against sharp image ground truth. This resulted in a Precision of 1.000 and a Recall of 0.286.
+    *   **Deblurred Image:** Achieved 1 True Positive, 0 False Positives, and 6 False Negatives against sharp image ground truth. This resulted in a Precision of 1.000 and a Recall of 0.143.
+*   **Confidence Score Analysis:**
+    *   For matched detections, the sharp image detections consistently had higher confidence scores than both blurred and deblurred detections.
+    *   The average confidence difference (Sharp \- Blurred) was 0.243 (Sharp avg: 0.686, Blurred avg: 0.444).
+    *   The average confidence difference (Sharp \- Deblurred) was significantly larger at 0.583 (Sharp avg: 0.855, Deblurred avg: 0.272).
+*   **Bounding Box Localization (Average IoU for Matched Detections):**
+    *   Matched deblurred detections had a slightly higher average IoU (0.912) compared to matched blurred detections (0.849), indicating better localization accuracy for those few detections that were successfully made after deblurring.
+*   **Class-wise Performance:**
+    *   **Blurred vs. Sharp:** The 'person' class had 1 True Positive and a Recall of 0.2500. The 'bowl' class had 1 False Positive, and 'potted plant' class had 3 False Negatives, both with 0.0000 Precision and Recall.
+    *   **Deblurred vs. Sharp:** The 'potted plant' class had 1 True Positive and a Recall of 0.3333. The 'person' class had 4 False Negatives, resulting in 0.0000 Precision and Recall. Notably, no 'person' objects were detected in the deblurred image.
+
+### Insights or Next Steps
+
+*   The deblurring process, in this instance, appears to have negatively impacted the overall recall and detection confidence more severely than the blur itself, especially for the 'person' class, while improving IoU for the few remaining matched detections.
+*   Investigate the specific effects of the deblurring algorithm on different object classes and explore alternative deblurring techniques or fine-tuning to improve overall detection recall and confidence, particularly for objects like 'person'.
+
+==========================================================================================================================================
