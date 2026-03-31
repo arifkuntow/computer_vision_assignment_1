@@ -79,8 +79,7 @@ names:
   77: teddy bear
   78: hair drier
   79: toothbrush
-path: d:\MSC AIML - Adelaide\!-COURSES-!\7- COMPUTER VISION AND MULTIMODAL ML\Assignment\Assignment
-  1\notebooks\..\data\train_test_split\sharp
+path: ..\data\train_test_split\sharp
 test: test/images
 train: train/images
 val: validation/images
